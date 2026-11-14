@@ -1,0 +1,19 @@
+# Runtime data that must never be published (chat messages, usage counters, backups)
+/data/messages.jsonl
+/data/chat.json
+/data/usage.json
+/data/*.bak
+/data/*.tmp
+/data/*.corrupt-*
+
+# Secrets and local tooling
+.env
+.env.*
+.claude/
+*.log
+/data/uploads/
+/data/avatars/
+
+# Installed dependencies
+node_modules/
+__pycache__/

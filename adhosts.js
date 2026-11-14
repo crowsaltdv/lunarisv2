@@ -1,0 +1,45 @@
+// Advertising, tracking and telemetry hosts. Game pages are not allowed to load or contact these (see vendor/guard.js and server.js).
+export const AD_HOSTS = [
+	"r9x.in",
+	"doubleclick.net",
+	"googlesyndication.com",
+	"googletagservices.com",
+	"googletagmanager.com",
+	"google-analytics.com",
+	"adtrafficquality.google",
+	"fundingchoicesmessages.google.com",
+	"imasdk.googleapis.com",
+	"cloudflareinsights.com",
+	"clarity.ms",
+	"hotjar.com",
+	"railway.app",
+	"adinplay.com",
+	"pubmatic.com",
+	"rubiconproject.com",
+	"adnxs.com",
+	"amazon-adsystem.com",
+	"criteo.com",
+	"taboola.com",
+	"outbrain.com",
+	"moatads.com",
+	"scorecardresearch.com",
+	"sentry.io",
+	"mixpanel.com",
+	"amplitude.com",
+];
+
+// What the proxied browser may not connect to (set PROXY_ALLOW_ADS=1 to switch this off). It is the list above minus railway.app,
+// which is a hosting platform real sites run on, plus a few more ad networks. Ads and trackers are a big share of what a page
+// downloads, so refusing them saves hosting bandwidth, and it saves the visitor's CPU too.
+export const PROXY_AD_HOSTS = [
+	...AD_HOSTS.filter((h) => h !== "railway.app"),
+	"googleadservices.com",
+	"adsrvr.org",
+	"openx.net",
+	"casalemedia.com",
+	"quantserve.com",
+	"ads-twitter.com",
+	"adform.net",
+	"advertising.com",
+	"smartadserver.com",
+];
