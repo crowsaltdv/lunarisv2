@@ -7,7 +7,8 @@
 		"start": "node server.js",
 		"usage": "node usage-report.js",
 		"dev": "node server.js",
-		"music:install": "python -m pip install -r ytmusic/requirements.txt"
+		"postinstall": "node ytmusic/install.js",
+		"music:install": "node ytmusic/install.js"
 	},
 	"dependencies": {
 		"@mercuryworkshop/epoxy-transport": "^3.0.2",

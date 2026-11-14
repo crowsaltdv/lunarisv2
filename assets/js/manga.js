@@ -362,31 +362,25 @@ function openReader(ctx,idx){
   [prev,prev2].forEach(function(b){b.addEventListener('click',function(){step(-1)})});
   [next,next2].forEach(function(b){b.addEventListener('click',function(){step(1)})});
 
-  var hi=[],lo=[],pg=[],io=null,queue=[],qt=0;
-  function src(i){return(M.saver&&lo[i])?lo[i]:(hi[i]||lo[i])}
-  // the results of loading pictures, sent on in small batches
-  function flush(){
-    clearTimeout(qt);qt=0;if(!queue.length)return;
-    var body=JSON.stringify({reports:queue.splice(0,40)});
-    try{fetch('/api/manga/report',{method:'POST',headers:{'Content-Type':'application/json'},body:body,keepalive:true}).catch(function(){})}catch(e){}}
-  function note(url,ok,bytes,ms){queue.push({url:url,success:ok,bytes:bytes,duration:Math.round(ms)});if(queue.length>=20)flush();else if(!qt)qt=setTimeout(flush,4000)}
+  var hi=[],lo=[],pg=[],io=null;
+  function src(i,quality){return '/api/manga/page/'+encodeURIComponent(c.id)+'/'+i+'?quality='+quality}
   function loadPage(i,other){
     var s=pg[i];if(!s||s.busy||(s.done&&!other))return;
     s.busy=true;
-    var url=other?(M.saver?hi[i]:lo[i])||src(i):src(i),t0=performance.now();
-    fetch(url,{referrerPolicy:'no-referrer'}).then(function(r){if(!r.ok)throw new Error('status '+r.status);return r.blob()}).then(function(b){
+    var quality=(other?!M.saver:M.saver)?'saver':'full',url=src(i,quality);
+    fetch(url).then(function(r){if(!r.ok)throw new Error('status '+r.status);return r.blob()}).then(function(b){
       if(seq!==M.rseq)return;
       var u=URL.createObjectURL(b);if(s.url)URL.revokeObjectURL(s.url);s.url=u;
-      s.im.classList.remove('bad');s.im.src=u;s.done=true;s.busy=false;note(url,true,b.size,performance.now()-t0)
+      s.im.classList.remove('bad');s.im.src=u;s.done=true;s.busy=false
     }).catch(function(){
       if(seq!==M.rseq)return;
-      s.busy=false;note(url,false,0,performance.now()-t0);
+      s.busy=false;
       // tried once in the other quality, then offered again on a click
       if(!other&&lo[i]&&hi[i]&&(M.saver?hi[i]:lo[i])!==url){loadPage(i,true);return}
       s.done=false;s.im.classList.add('bad');s.im.alt='Page '+(i+1)+' didn’t load. Click to try again.';
       s.im.onclick=function(){s.im.onclick=null;s.im.classList.remove('bad');loadPage(i)}})}
   function cleanup(){
-    M.rseq++;flush();if(io)io.disconnect();
+    M.rseq++;if(io)io.disconnect();
     pg.forEach(function(s){if(s.url)URL.revokeObjectURL(s.url)});pg=[];M.rd=null}
   M.rd={ctx:ctx,idx:idx,step:step,cleanup:cleanup};
   saver.addEventListener('click',function(){

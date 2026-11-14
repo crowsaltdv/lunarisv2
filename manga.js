@@ -532,21 +532,55 @@ export function mangaRouter() {
 
 	// the pages of one chapter: /api/manga/read/<chapter id>. MangaDex hands out a server for the pictures that works for about 15
 	// minutes, so the answer is kept for 5; the browser then loads each picture from that server itself.
+	async function readerPages(id, fresh = false) {
+		if (fresh) {
+			cache.delete("read|" + id);
+			inflight.delete("read|" + id);
+		}
+		return cached("read|" + id, 5 * MIN, async () => {
+			const j = await md("/at-home/server/" + id);
+			const base = String(j.baseUrl || "");
+			const hash = String(j.chapter?.hash || "");
+			if (!/^https:\/\/[a-z0-9.-]+\.mangadex\.network(:\d+)?$/i.test(base) || !/^[a-f0-9]{16,64}$/i.test(hash)) throw gone();
+			const files = (list, dir) => (Array.isArray(list) ? list : []).filter((f) => typeof f === "string" && /^[\w.-]{1,200}$/.test(f)).map((f) => `${base}/${dir}/${hash}/${f}`);
+			return { images: files(j.chapter?.data, "data"), saver: files(j.chapter?.dataSaver, "data-saver") };
+		});
+	}
 	r.get("/read/:id", async (req, res) => {
 		const id = String(req.params.id || "");
 		if (!UUID.test(id)) return res.status(404).json({ error: "That wasn't found." });
 		try {
-			const out = await cached("read|" + id, 5 * MIN, async () => {
-				const j = await md("/at-home/server/" + id);
-				const base = String(j.baseUrl || "");
-				const hash = String(j.chapter?.hash || "");
-				if (!/^https:\/\/[a-z0-9.-]+\.mangadex\.network(:\d+)?$/i.test(base) || !/^[a-f0-9]{16,64}$/i.test(hash)) throw gone();
-				const files = (list, dir) => (Array.isArray(list) ? list : []).filter((f) => typeof f === "string" && /^[\w.-]{1,200}$/.test(f)).map((f) => `${base}/${dir}/${hash}/${f}`);
-				return { images: files(j.chapter?.data, "data"), saver: files(j.chapter?.dataSaver, "data-saver") };
-			});
+			const out = await readerPages(id);
 			send(res, out, 60);
 		} catch (e) {
 			fail(res, e);
+		}
+	});
+
+	// Load pages through this server so expired or unhealthy MangaDex@Home assignments can be refreshed automatically.
+	r.get("/page/:id/:index", async (req, res) => {
+		const id = String(req.params.id || "");
+		const index = Number(req.params.index);
+		const saver = req.query.quality === "saver";
+		if (!UUID.test(id) || !Number.isInteger(index) || index < 0 || index > 999) return res.status(404).end();
+		try {
+			for (let attempt = 0; attempt < 2; attempt++) {
+				const pages = await readerPages(id, attempt === 1);
+				const url = (saver ? pages.saver[index] || pages.images[index] : pages.images[index] || pages.saver[index]);
+				if (!url) return res.status(404).end();
+				try {
+					const image = await fetch(url, { headers: { "User-Agent": UA, Accept: "image/avif,image/webp,image/png,image/jpeg,*/*;q=0.8" }, signal: AbortSignal.timeout(20e3) });
+					if (!image.ok || !/^image\//i.test(image.headers.get("content-type") || "")) throw new Error("MangaDex@Home page unavailable");
+					const body = Buffer.from(await image.arrayBuffer());
+					if (body.length > 20e6) return res.status(502).end();
+					res.set({ "Content-Type": image.headers.get("content-type"), "Cache-Control": "private, max-age=300", "X-Content-Type-Options": "nosniff" }).send(body);
+					return;
+				} catch (e) {
+					if (attempt) throw e;
+				}
+			}
+		} catch {
+			res.status(502).end();
 		}
 	});
 

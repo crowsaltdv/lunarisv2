@@ -2,6 +2,7 @@ import express from "express";
 import net from "node:net";
 import path from "node:path";
 import { spawn } from "node:child_process";
+import { pythonCommands } from "./ytmusic/python.js";
 
 // Music comes from YouTube Music through ytmusicapi (https://github.com/sigma67/ytmusicapi), which is a Python library.
 // ytmusic/service.py wraps it in a small JSON API that only listens on 127.0.0.1; this file starts that process, keeps it
@@ -9,16 +10,11 @@ import { spawn } from "node:child_process";
 // ytmusicapi supplies the catalog (charts, search, albums, playlists, artists, radio). The page plays each song by its
 // videoId through YouTube's own embedded player, so no audio ever passes through this server.
 //
-// Setup:  python -m pip install -r ytmusic/requirements.txt      (set YTMUSIC_PYTHON to use a specific python)
+// Setup:  npm install      (its postinstall step, ytmusic/install.js, installs ytmusicapi; set YTMUSIC_PYTHON to use a specific python)
 const SCRIPT = path.join(import.meta.dirname, "ytmusic", "service.py");
-const INSTALL_HINT = 'Music needs Python with ytmusicapi. Run "python -m pip install -r ytmusic/requirements.txt" and restart the site.';
+const INSTALL_HINT = 'Music needs Python with ytmusicapi. Run "npm install" (or "npm run music:install") and restart the site.';
 
 const svc = { port: 0, child: null, ready: false, starting: null, error: "", lastTry: 0 };
-
-function pythonCommands() {
-	if (process.env.YTMUSIC_PYTHON) return [[process.env.YTMUSIC_PYTHON]];
-	return process.platform === "win32" ? [["python"], ["py", "-3"]] : [["python3"], ["python"]];
-}
 
 function freePort() {
 	return new Promise((resolve, reject) => {

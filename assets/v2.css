@@ -513,6 +513,18 @@ body.playing .eq i:nth-child(4){animation-delay:-.15s}
   .dock button span{display:block;font-size:8px;letter-spacing:.01em}
   .dock .sep{margin:0 1px}
 }
+/* with a mouse the dock is icons only, which keeps it short: a button's name pops up above it on hover or keyboard focus */
+@media(min-width:641px) and (hover:hover) and (pointer:fine){
+  .dock{gap:2px;padding:6px}
+  .dock button{min-width:0;padding:10px}
+  .dock button span,.dock button.on span{position:absolute;left:50%;bottom:calc(100% + 12px);padding:6px 10px;font-size:11px;letter-spacing:.02em;color:var(--ink);background:rgb(var(--s));border:1px solid var(--line);border-radius:9px;box-shadow:0 10px 24px -12px rgba(0,0,0,.7);opacity:0;visibility:hidden;pointer-events:none;transform:translate(-50%,4px);transition:opacity .2s,transform .25s var(--ease),visibility 0s .2s}
+  .dock button:hover span,.dock button:focus-visible span{opacity:1;visibility:visible;transform:translate(-50%,0);transition:opacity .2s,transform .25s var(--ease),visibility 0s}
+  .dock .sep{margin:0 4px}
+}
+/* a touch screen wider than a phone has no hover, so it keeps the names under the icons, packed closer so the dock fits */
+@media(min-width:641px) and (hover:none),(min-width:641px) and (pointer:coarse){
+  .dock button{min-width:0;padding:8px 6px 6px}
+}
 
 /* ---------- Manga: the page reuses the Watch grid, tiles and title page; these are its own parts ---------- */
 #manga [hidden]{display:none!important}
