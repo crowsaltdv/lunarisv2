@@ -1085,10 +1085,15 @@ footer small{display:block;width:100%;font-size:12px;opacity:.7;margin-top:6px}
 var cv=document.getElementById('sky'),cx=cv.getContext('2d'),hero=document.getElementById('hero');
 var W,H,stars=[],mx=-1e3,my=-1e3,tx=0,ty=0,shoot=null,room=null,R=170;
 var rm=matchMedia('(prefers-reduced-motion: reduce)').matches;
+var skyFrame=0,skyLast=0,presenceLast=0,presenceX=null,presenceY=null;
 function size(){var D=Math.min(devicePixelRatio||1,2);W=innerWidth;H=innerHeight;cv.width=W*D;cv.height=H*D;cx.setTransform(D,0,0,D,0,0);
   stars=[];for(var i=0,n=Math.round(W*H/5500);i<n;i++)stars.push({x:Math.random()*W,y:Math.random()*H,z:.2+Math.random()*.8,r:.4+Math.random()*1.3,t:Math.random()*6.28,s:.5+Math.random()*1.5,ox:0,oy:0,w:Math.random()<.15})}
 size();addEventListener('resize',size);
 function frame(t){
+  skyFrame=0;
+  if(document.hidden)return;
+  if(t-skyLast<33){skyFrame=requestAnimationFrame(frame);return}
+  skyLast=t;
   cx.clearRect(0,0,W,H);
   var on=mx>-1e3;
   tx+=((on?mx/W-.5:0)-tx)*.05;ty+=((on?my/H-.5:0)-ty)*.05;
@@ -1111,12 +1116,15 @@ function frame(t){
   if(shoot){shoot.x+=9;shoot.y+=4;shoot.l++;var sg=cx.createLinearGradient(shoot.x,shoot.y,shoot.x-90,shoot.y-40);sg.addColorStop(0,'rgba(255,255,255,.9)');sg.addColorStop(1,'rgba(255,255,255,0)');cx.strokeStyle=sg;cx.lineWidth=1.6;cx.beginPath();cx.moveTo(shoot.x,shoot.y);cx.lineTo(shoot.x-90,shoot.y-40);cx.stroke();if(shoot.l>110)shoot=null}
   if(room){var ps=room.peers();for(var k=0;k<ps.length;k++){var u=ps[k];if(u.isMe||u.kind!=='viewer'||typeof u.presence.x!=='number')continue;
     var ux=u.presence.x*W,uy=u.presence.y*H,ug=cx.createRadialGradient(ux,uy,0,ux,uy,40);ug.addColorStop(0,'rgba(255,226,160,.5)');ug.addColorStop(1,'rgba(255,226,160,0)');cx.fillStyle=ug;cx.fillRect(ux-40,uy-40,80,80);cx.fillStyle='#ffe2a0';cx.beginPath();cx.arc(ux,uy,2.5,0,6.283);cx.fill()}}
-  requestAnimationFrame(frame);
+  if(room&&on&&t-presenceLast>100){var px=+(mx/W).toFixed(2),py=+(my/H).toFixed(2);if(px!==presenceX||py!==presenceY){presenceX=px;presenceY=py;sendPos(px,py)}presenceLast=t}
+  skyFrame=requestAnimationFrame(frame);
 }
-requestAnimationFrame(frame);
+function startSky(){if(!skyFrame&&!document.hidden)skyFrame=requestAnimationFrame(frame)}
+startSky();
+document.addEventListener('visibilitychange',function(){if(document.hidden){if(skyFrame)cancelAnimationFrame(skyFrame);skyFrame=0}else{skyLast=0;startSky()}});
 function sendPos(x,y){if(room)room.presence({x:x,y:y}).catch(function(){})}
-addEventListener('pointermove',function(e){mx=e.clientX;my=e.clientY;sendPos(+(mx/W).toFixed(3),+(my/H).toFixed(3))});
-document.addEventListener('pointerleave',function(){mx=my=-1e3;sendPos(null,null)});
+addEventListener('pointermove',function(e){mx=e.clientX;my=e.clientY});
+document.addEventListener('pointerleave',function(){mx=my=-1e3;presenceX=presenceY=null;sendPos(null,null)});
 
 // ---------- online users (counted by the server: everyone who has Lunaris v2 open right now) ----------
 var onEl=document.getElementById('on');
@@ -1268,7 +1276,7 @@ async function go(t,raw){
     if(cur===t){tabs.forEach(function(x){if(x.ifr)x.ifr.hidden=x!==t});sync()}
   }catch(e){t.going=false;t.el.classList.remove('loading');if(cur===t)msg(e&&e.message?e.message:String(e))}
 }
-setInterval(function(){tabs.forEach(function(t){if(!t.ifr)return;try{var d=t.ifr.contentDocument;if(d&&d.title)setTitle(t,d.title)}catch(e){}})},800);
+setInterval(function(){if(document.hidden||!cur||!cur.ifr)return;try{var d=cur.ifr.contentDocument;if(d&&d.title)setTitle(cur,d.title)}catch(e){}},2000);
 // tabs survive reloads and closing the browser; they wake up when you open them
 (function(){try{var s=JSON.parse(localStorage.getItem('lunaris-tabs'));
   if(s&&Array.isArray(s.t)&&s.t.length){s.t.slice(0,12).forEach(function(x){if(x.b===1)return;makeTab(typeof x.u==='string'&&/^https?:\/\//i.test(x.u)?x.u:'',typeof x.n==='string'?x.n.slice(0,200):'')});if(tabs.length)activate(tabs[Math.min(Math.max(0,s.a|0),tabs.length-1)])}}catch(e){}})();document.getElementById('tabadd').addEventListener('click',function(){newTab()});
