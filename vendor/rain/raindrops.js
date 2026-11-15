@@ -1,6 +1,6 @@
 import times from "./times.js";
 import createCanvas from "./create-canvas.js";
-import {random, chance} from "./random.js";
+import {random, chance} from "./random.js?v=3";
 
 let dropSize=64;
 const Drop={
@@ -38,6 +38,43 @@ const defaultOptions={
   dropFallMultiplier:1,
   collisionBoostMultiplier:0.05,
   collisionBoost:1,
+  density:1,
+  maxTimeScale:3,
+}
+
+// The 255 drop sprites only depend on the two drop images, so one sheet is shared by every Raindrops
+// (they are rebuilt on each resize / quality change). All sprites live on one canvas, which lets the
+// browser draw a whole frame of drops from a single texture instead of switching between 255 of them.
+const SPRITES=255;
+const SHEET_COLS=16;
+let sheet=null;
+function dropSheet(dropAlpha,dropColor){
+  if(sheet&&sheet.alpha===dropAlpha&&sheet.color===dropColor) return sheet.canvas;
+  const canvas=createCanvas(SHEET_COLS*dropSize,SHEET_COLS*dropSize);
+  const ctx=canvas.getContext('2d');
+  const buffer=createCanvas(dropSize,dropSize);
+  const bctx=buffer.getContext('2d');
+  const one=createCanvas(dropSize,dropSize);
+  const octx=one.getContext('2d');
+  for(let i=0;i<SPRITES;i++){
+    bctx.clearRect(0,0,dropSize,dropSize);
+    // color
+    bctx.globalCompositeOperation="source-over";
+    bctx.drawImage(dropColor,0,0,dropSize,dropSize);
+    // blue overlay, for depth
+    bctx.globalCompositeOperation="screen";
+    bctx.fillStyle="rgba(0,0,"+i+",1)";
+    bctx.fillRect(0,0,dropSize,dropSize);
+    // alpha
+    octx.clearRect(0,0,dropSize,dropSize);
+    octx.globalCompositeOperation="source-over";
+    octx.drawImage(dropAlpha,0,0,dropSize,dropSize);
+    octx.globalCompositeOperation="source-in";
+    octx.drawImage(buffer,0,0,dropSize,dropSize);
+    ctx.drawImage(one,(i%SHEET_COLS)*dropSize,Math.floor(i/SHEET_COLS)*dropSize);
+  }
+  sheet={alpha:dropAlpha,color:dropColor,canvas};
+  return canvas;
 }
 
 function Raindrops(width,height,scale,dropAlpha,dropColor,options={}){
@@ -62,12 +99,11 @@ Raindrops.prototype={
   dropletsCtx:null,
   dropletsCounter:0,
   drops:null,
-  dropsGfx:null,
+  dropsSheet:null,
+  scratch:null,
   clearDropletsGfx:null,
   textureCleaningIterations:0,
   lastRender:null,
-  stopped:false,
-  raf:0,
 
   options:null,
 
@@ -79,7 +115,7 @@ Raindrops.prototype={
     this.dropletsCtx = this.droplets.getContext('2d');
 
     this.drops=[];
-    this.dropsGfx=[];
+    this.scratch={x:0,y:0,r:0,spreadX:0,spreadY:0};
 
     this.renderDropsGfx();
 
@@ -88,47 +124,23 @@ Raindrops.prototype={
   get deltaR(){
     return this.options.maxR-this.options.minR;
   },
+  // the screen's area in CSS pixels, whatever resolution the canvas is drawn at
   get area(){
-    return (this.width*this.height)/this.scale;
+    return (this.width/this.scale)*(this.height/this.scale);
   },
   get areaMultiplier(){
-    return Math.sqrt(this.area/(1024*768));
+    return Math.sqrt(this.area/(1024*768))*this.options.density;
   },
   drawDroplet(x,y,r){
-    this.drawDrop(this.dropletsCtx,Object.assign(Object.create(Drop),{
-      x:x*this.dropletsPixelDensity,
-      y:y*this.dropletsPixelDensity,
-      r:r*this.dropletsPixelDensity
-    }));
+    const d=this.scratch;
+    d.x=x*this.dropletsPixelDensity;
+    d.y=y*this.dropletsPixelDensity;
+    d.r=r*this.dropletsPixelDensity;
+    this.drawDrop(this.dropletsCtx,d);
   },
 
   renderDropsGfx(){
-    let dropBuffer=createCanvas(dropSize,dropSize);
-    let dropBufferCtx=dropBuffer.getContext('2d');
-    this.dropsGfx=Array.apply(null,Array(255))
-      .map((cur,i)=>{
-        let drop=createCanvas(dropSize,dropSize);
-        let dropCtx=drop.getContext('2d');
-
-        dropBufferCtx.clearRect(0,0,dropSize,dropSize);
-
-        // color
-        dropBufferCtx.globalCompositeOperation="source-over";
-        dropBufferCtx.drawImage(this.dropColor,0,0,dropSize,dropSize);
-
-        // blue overlay, for depth
-        dropBufferCtx.globalCompositeOperation="screen";
-        dropBufferCtx.fillStyle="rgba(0,0,"+i+",1)";
-        dropBufferCtx.fillRect(0,0,dropSize,dropSize);
-
-        // alpha
-        dropCtx.globalCompositeOperation="source-over";
-        dropCtx.drawImage(this.dropAlpha,0,0,dropSize,dropSize);
-
-        dropCtx.globalCompositeOperation="source-in";
-        dropCtx.drawImage(dropBuffer,0,0,dropSize,dropSize);
-        return drop;
-    });
+    this.dropsSheet=dropSheet(this.dropAlpha,this.dropColor);
 
     // create circle that will be used as a brush to remove droplets
     this.clearDropletsGfx=createCanvas(128,128);
@@ -139,31 +151,33 @@ Raindrops.prototype={
     clearDropletsCtx.fill();
   },
   drawDrop(ctx,drop){
-    if(this.dropsGfx.length>0){
-      let x=drop.x;
-      let y=drop.y;
-      let r=drop.r;
-      let spreadX=drop.spreadX;
-      let spreadY=drop.spreadY;
+    let x=drop.x;
+    let y=drop.y;
+    let r=drop.r;
+    let spreadX=drop.spreadX;
+    let spreadY=drop.spreadY;
 
-      let scaleX=1;
-      let scaleY=1.5;
+    let scaleX=1;
+    let scaleY=1.5;
 
-      let d=Math.max(0,Math.min(1,((r-this.options.minR)/(this.deltaR))*0.9));
-      d*=1/(((drop.spreadX+drop.spreadY)*0.5)+1);
+    let d=Math.max(0,Math.min(1,((r-this.options.minR)/(this.deltaR))*0.9));
+    d*=1/(((drop.spreadX+drop.spreadY)*0.5)+1);
 
-      ctx.globalAlpha=1;
-      ctx.globalCompositeOperation="source-over";
+    ctx.globalAlpha=1;
+    ctx.globalCompositeOperation="source-over";
 
-      d=Math.floor(d*(this.dropsGfx.length-1));
-      ctx.drawImage(
-        this.dropsGfx[d],
-        (x-(r*scaleX*(spreadX+1)))*this.scale,
-        (y-(r*scaleY*(spreadY+1)))*this.scale,
-        (r*2*scaleX*(spreadX+1))*this.scale,
-        (r*2*scaleY*(spreadY+1))*this.scale
-      );
-    }
+    d=Math.floor(d*(SPRITES-1));
+    ctx.drawImage(
+      this.dropsSheet,
+      (d%SHEET_COLS)*dropSize,
+      Math.floor(d/SHEET_COLS)*dropSize,
+      dropSize,
+      dropSize,
+      (x-(r*scaleX*(spreadX+1)))*this.scale,
+      (y-(r*scaleY*(spreadY+1)))*this.scale,
+      (r*2*scaleX*(spreadX+1))*this.scale,
+      (r*2*scaleY*(spreadY+1))*this.scale
+    );
   },
   clearDroplets(x,y,r=30){
     let ctx=this.dropletsCtx;
@@ -256,9 +270,10 @@ Raindrops.prototype={
     let rainDrops=this.updateRain(timeScale);
     newDrops=newDrops.concat(rainDrops);
 
+    const rowWidth=this.width/this.scale;
     this.drops.sort((a,b)=>{
-      let va=(a.y*(this.width/this.scale))+a.x;
-      let vb=(b.y*(this.width/this.scale))+b.x;
+      let va=(a.y*rowWidth)+a.x;
+      let vb=(b.y*rowWidth)+b.x;
       return va>vb?1:va==vb?0:-1;
     });
 
@@ -267,7 +282,7 @@ Raindrops.prototype={
         // update gravity
         // (chance of drops "creeping down")
         if(chance((drop.r-(this.options.minR*this.options.dropFallMultiplier)) * (0.1/this.deltaR) * timeScale)){
-          drop.momentum += random((drop.r/this.options.maxR)*4);
+          drop.momentum = Math.min(drop.momentum + random((drop.r/this.options.maxR)*4), 60); // (60: merged drops already top out at 40; this keeps a freak drop from accelerating without limit)
         }
         // clean small drops
         if(this.options.autoShrink && drop.r<=this.options.minR && chance(0.05*timeScale)){
@@ -292,7 +307,7 @@ Raindrops.prototype={
             if(trailDrop!=null){
               newDrops.push(trailDrop);
 
-              drop.r*=Math.pow(0.97,timeScale);
+              drop.r*=0.97; // per trail droplet, not per unit of time: trails are laid down by distance travelled, so scaling this by the step size made drops lose less mass at high frame rates, grow, speed up and run away
               drop.lastSpawn=0;
               drop.nextSpawn=random(this.options.minR,this.options.maxR)-(drop.momentum*2*this.options.trailRate)+(this.options.maxR-drop.r);
             }
@@ -306,8 +321,9 @@ Raindrops.prototype={
         //update position
         let moved=drop.momentum>0;
         if(moved && !drop.killed){
-          drop.y+=drop.momentum*this.options.globalTimeScale;
-          drop.x+=drop.momentumX*this.options.globalTimeScale;
+          // scaled by the elapsed time, so drops fall at the same speed at 30, 60 or 144 frames a second
+          drop.y+=drop.momentum*timeScale;
+          drop.x+=drop.momentumX*timeScale;
           if(drop.y>(this.height/this.scale)+drop.r){
             drop.killed=true;
           }
@@ -318,7 +334,11 @@ Raindrops.prototype={
         drop.isNew=false;
 
         if(checkCollision){
-          this.drops.slice(i+1,i+70).forEach((drop2)=>{
+          // the next 69 drops in the sorted list (a plain loop: no copy of the list per drop)
+          const list=this.drops;
+          const end=Math.min(list.length,i+70);
+          for(let j=i+1;j<end;j++){
+            const drop2=list[j];
             //basic check
             if(
               drop != drop2 &&
@@ -338,8 +358,8 @@ Raindrops.prototype={
                 let a1=pi*(r1*r1);
                 let a2=pi*(r2*r2);
                 let targetR=Math.sqrt((a1+(a2*0.8))/pi);
-                if(targetR>this.maxR){
-                  targetR=this.maxR;
+                if(targetR>this.options.maxR*2){ // (the original compared with this.maxR, which doesn't exist, so merged drops never had a size limit)
+                  targetR=this.options.maxR*2;
                 }
                 drop.r=targetR;
                 drop.momentumX+=dx*0.1;
@@ -349,7 +369,7 @@ Raindrops.prototype={
                 drop.momentum=Math.max(drop2.momentum,Math.min(40,drop.momentum+(targetR*this.options.collisionBoostMultiplier)+this.options.collisionBoost));
               }
             }
-          });
+          }
         }
 
         //slowdown momentum
@@ -376,16 +396,16 @@ Raindrops.prototype={
     if(this.lastRender==null) this.lastRender=now;
     let deltaT=now-this.lastRender;
     let timeScale=deltaT/((1/60)*1000);
-    if(timeScale>1.1) timeScale=1.1;
+    if(!(timeScale>=0)) timeScale=0; // a clock that stepped backwards (or NaN) must not run the simulation in reverse
+    else if(timeScale>this.options.maxTimeScale) timeScale=this.options.maxTimeScale;
     timeScale*=this.options.globalTimeScale;
     this.lastRender=now;
 
     this.updateDrops(timeScale);
-
-    if(!this.stopped)this.raf=requestAnimationFrame(this.update.bind(this));
   },
-  stop(){this.stopped=true;cancelAnimationFrame(this.raf)},
-  start(){if(!this.stopped)return;this.stopped=false;this.lastRender=null;this.update()}
+  // one step of the simulation per call: the caller owns the frame loop (see lunaris-rain.js)
+  // call after a pause so the first step doesn't see the whole pause as elapsed time
+  resume(){this.lastRender=null}
 }
 
 export default Raindrops;

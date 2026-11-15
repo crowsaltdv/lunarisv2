@@ -1,5 +1,4 @@
-import * as WebGL from "./webgl.js";
-import GL from "./gl-obj.js";
+import GL from "./gl-obj.js?v=3";
 import createCanvas from "./create-canvas.js";
 import {vertShader,fragShader} from "./shaders.js";
 
@@ -13,6 +12,7 @@ const defaultOptions={
   parallaxBg:5,
   parallaxFg:20
 }
+// The caller owns the frame loop: draw() renders exactly one frame.
 function RainRenderer(canvas,canvasLiquid, imageFg, imageBg, imageShine=null,options={}){
 
   this.canvas=canvas;
@@ -28,6 +28,8 @@ RainRenderer.prototype={
   canvas:null,
   gl:null,
   canvasLiquid:null,
+  liquidW:0,
+  liquidH:0,
   width:0,
   height:0,
   imageShine:"",
@@ -35,33 +37,25 @@ RainRenderer.prototype={
   imageBg:"",
   textures:null,
   programWater:null,
-  programBlurX:null,
-  programBlurY:null,
-  stopped:false,
-  raf:0,
+  parallaxLoc:null,
   parallaxX:0,
   parallaxY:0,
-  renderShadow:false,
   options:null,
   init(){
     this.width=this.canvas.width;
     this.height=this.canvas.height;
-    this.gl=new GL(this.canvas, {alpha:false},vertShader,fragShader);
+    // no antialiasing, depth or stencil: the whole picture is one full-screen quad, so they would only cost memory and bandwidth
+    this.gl=new GL(this.canvas, {alpha:false,antialias:false,depth:false,stencil:false},vertShader,fragShader);
     let gl=this.gl;
     this.programWater=gl.program;
 
-    gl.createUniform("2f","resolution",this.width,this.height);
     gl.createUniform("1f","textureRatio",this.imageBg.width/this.imageBg.height);
     gl.createUniform("1i","renderShine",this.imageShine==null?false:true);
     gl.createUniform("1i","renderShadow",this.options.renderShadow);
-    gl.createUniform("1f","minRefraction",this.options.minRefraction);
-    gl.createUniform("1f","refractionDelta",this.options.maxRefraction-this.options.minRefraction);
     gl.createUniform("1f","brightness",this.options.brightness);
     gl.createUniform("1f","alphaMultiply",this.options.alphaMultiply);
     gl.createUniform("1f","alphaSubtract",this.options.alphaSubtract);
-    gl.createUniform("1f","parallaxBg",this.options.parallaxBg);
-    gl.createUniform("1f","parallaxFg",this.options.parallaxFg);
-
+    this.applySize();
 
     gl.createTexture(null,0);
 
@@ -76,21 +70,26 @@ RainRenderer.prototype={
       gl.createUniform("1i",texture.name,i+1);
     });
 
+    this.parallaxLoc=gl.uniformLocation("parallax");
     this.draw();
   },
+  // everything that depends on the canvas size: the refraction and parallax amounts are in canvas pixels
+  applySize(){
+    let gl=this.gl,o=this.options;
+    gl.createUniform("2f","resolution",this.width,this.height);
+    gl.createUniform("1f","minRefraction",o.minRefraction);
+    gl.createUniform("1f","refractionDelta",o.maxRefraction-o.minRefraction);
+    gl.createUniform("1f","parallaxBg",o.parallaxBg);
+    gl.createUniform("1f","parallaxFg",o.parallaxFg);
+    gl.gl.viewport(0,0,this.width,this.height);
+  },
   draw(){
-    this.gl.useProgram(this.programWater);
-    this.gl.createUniform("2f", "parallax", this.parallaxX,this.parallaxY);
+    this.gl.gl.uniform2f(this.parallaxLoc,this.parallaxX,this.parallaxY);
     this.updateTexture();
     this.gl.draw();
-
-    if(!this.stopped)this.raf=requestAnimationFrame(this.draw.bind(this));
   },
-  stop(){this.stopped=true;cancelAnimationFrame(this.raf)},
-  start(){if(!this.stopped)return;this.stopped=false;this.draw()},
   setImages(fg,bg){
     this.imageFg=fg;this.imageBg=bg;this.textures[1].img=fg;this.textures[2].img=bg;
-    this.gl.useProgram(this.programWater);
     this.gl.createUniform("1f","textureRatio",bg.width/bg.height);
     this.updateTextures();
   },
@@ -100,18 +99,27 @@ RainRenderer.prototype={
       this.gl.updateTexture(texture.img);
     })
   },
+  // the water map is re-uploaded every frame: overwrite the existing texture when its size is unchanged
   updateTexture(){
+    let c=this.canvasLiquid;
     this.gl.activeTexture(0);
-    this.gl.updateTexture(this.canvasLiquid);
+    if(c.width===this.liquidW&&c.height===this.liquidH){
+      this.gl.updateSubTexture(c);
+    }else{
+      this.gl.updateTexture(c);
+      this.liquidW=c.width;
+      this.liquidH=c.height;
+    }
   },
-  resize(){
-
-  },
-  get overlayTexture(){
-
-  },
-  set overlayTexture(v){
-
+  // new canvas size and water map (and the pixel-based amounts that go with them); keeps the GL context and textures
+  resize(width,height,canvasLiquid,options){
+    this.canvas.width=width;
+    this.canvas.height=height;
+    this.width=width;
+    this.height=height;
+    this.canvasLiquid=canvasLiquid;
+    Object.assign(this.options,options);
+    this.applySize();
   }
 }
 

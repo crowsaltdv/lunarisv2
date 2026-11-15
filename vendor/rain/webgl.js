@@ -47,8 +47,11 @@ export function createProgram(gl,vertexScript,fragScript){
      1.0, -1.0,
      1.0,  1.0
   ]), gl.STATIC_DRAW);
-  gl.enableVertexAttribArray(texCoordLocation);
-  gl.vertexAttribPointer(texCoordLocation, 2, gl.FLOAT, false, 0, 0);
+  // this shader has no a_texCoord (the location is -1): enabling it only logs "index out of range" warnings
+  if (texCoordLocation >= 0) {
+    gl.enableVertexAttribArray(texCoordLocation);
+    gl.vertexAttribPointer(texCoordLocation, 2, gl.FLOAT, false, 0, 0);
+  }
 
   // Create a buffer for the position of the rectangle corners.
   var buffer = gl.createBuffer();
@@ -102,6 +105,11 @@ export function activeTexture(gl,i){
 }
 export function updateTexture(gl,source){
   gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, source);
+}
+// same pixels as updateTexture, for a source whose size hasn't changed: overwrites the existing
+// texture instead of allocating a new one, which is the cheaper path for the per-frame upload
+export function updateSubTexture(gl,source){
+  gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, gl.RGBA, gl.UNSIGNED_BYTE, source);
 }
 export function setRectangle(gl, x, y, width, height) {
   var x1 = x;

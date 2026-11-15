@@ -310,7 +310,7 @@ app.use(
 		// the page itself is re-checked on every visit (cheap 304 if unchanged); heavy files are kept by the browser
 		setHeaders(res, file) {
 			const rel = path.relative(import.meta.dirname, file).replace(/\\/g, "/");
-			if (rel === "index.html" || rel === "games.js" || rel.startsWith("assets/")) res.setHeader("Cache-Control", "no-cache");
+			if (rel === "index.html" || rel === "games.js" || rel.startsWith("assets/") || (rel.startsWith("vendor/rain/") && rel.endsWith(".js"))) res.setHeader("Cache-Control", "no-cache"); // (the rain effect's scripts are ours and still change, so they are re-checked too; its pictures and the fonts never do)
 			else if (rel.startsWith("vendor/")) res.setHeader("Cache-Control", "public, max-age=2592000, immutable");
 			else if (rel.startsWith("games/")) res.setHeader("Cache-Control", "public, max-age=2592000, immutable"); // game files only change when the site is updated
 		},
